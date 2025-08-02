@@ -1,0 +1,41 @@
+## Ignore build results
+bin/
+obj/
+out/
+
+## Ignore user-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vscode/
+.idea/
+
+## ASP.NET secrets
+/appsettings.*.json
+secrets.json
+
+## Ignore .NET Core stuff
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## NuGet packages folder (if using packages.config)
+packages/
+
+## Visual Studio specific
+.vs/
+
+## Rider specific
+.idea/
+*.sln.iml
+
+## Mac and Linux
+.DS_Store
+*.swp
+
+## Logs
+*.log
+
+## Publish directory
+publish/

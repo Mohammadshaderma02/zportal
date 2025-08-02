@@ -1,0 +1,6 @@
+@ZainEMPProtal_HostAddress = http://localhost:5090
+
+GET {{ZainEMPProtal_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
