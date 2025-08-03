@@ -10,5 +10,6 @@
         public string Skill { get; set; }
         public string Link { get; set; }
         public string Level { get; set; }
+        public string? CourseNo { get; set; }
     }
 }

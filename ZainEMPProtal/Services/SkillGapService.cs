@@ -16,6 +16,15 @@ namespace ZainEMPProtal.Services
         Task<ApiResponse<SkillGapViewModel>> RejectProfileAsync(SkillGapViewModel viewModel, RejectProfileRequest request);
         Task<ApiResponse<SkillGapViewModel>> ApproveProfileAsync(SkillGapViewModel viewModel, int id);
         Task<ApiResponse<bool>> AddFeedbackAsync(FeedbackRequest request);
+        Task<ApiResponse<PaginatedCourseResult>> GetCoursesAsync(CourseSearchRequest request);
+        Task<ApiResponse<Course>> GetCourseByIdAsync(int courseId);
+        Task<ApiResponse<Course>> CreateCourseAsync(CreateCourseRequest request);
+        Task<ApiResponse<Course>> UpdateCourseAsync(UpdateCourseRequest request);
+        Task<ApiResponse<bool>> DeleteCourseAsync(int courseId);
+        Task<ApiResponse<List<string>>> GetDepartmentsAsync();
+        Task<ApiResponse<List<string>>> GetAreasAsync(string? department = null);
+        Task<ApiResponse<List<string>>> GetSkillsAsync(string? area = null);
+        Task<ApiResponse<List<string>>> GetLevelsAsync();
     }
     /// <summary>
     /// Service layer for SkillGap Analysis operations
@@ -855,6 +864,484 @@ namespace ZainEMPProtal.Services
                     Success = false,
                     Message = "An error occurred while adding feedback",
                     Data = false
+                };
+            }
+        }
+        /// <summary>
+        /// Get courses with search and pagination
+        /// </summary>
+        /// <param name="request">Search and pagination parameters</param>
+        /// <returns>Paginated list of courses</returns>
+        public async Task<ApiResponse<PaginatedCourseResult>> GetCoursesAsync(CourseSearchRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Getting courses with search criteria");
+
+                // Validate pagination parameters
+                if (request.PageNumber < 1)
+                    request.PageNumber = 1;
+
+                if (request.PageSize < 1 || request.PageSize > 100)
+                    request.PageSize = 10;
+
+                var result = await _repository.GetCoursesAsync(request);
+
+                _logger.LogInformation("Retrieved {Count} courses from page {PageNumber}",
+                    result.Data?.Courses?.Count ?? 0, request.PageNumber);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetCoursesAsync");
+                return new ApiResponse<PaginatedCourseResult>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving courses",
+                    Data = new PaginatedCourseResult()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get course by ID
+        /// </summary>
+        /// <param name="courseId">Course ID</param>
+        /// <returns>Course details</returns>
+        public async Task<ApiResponse<Course>> GetCourseByIdAsync(int courseId)
+        {
+            try
+            {
+                _logger.LogInformation("Getting course by ID: {CourseId}", courseId);
+
+                if (courseId <= 0)
+                {
+                    _logger.LogWarning("Invalid course ID provided: {CourseId}", courseId);
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course ID must be greater than 0",
+                        Data = null
+                    };
+                }
+
+                var result = await _repository.GetCourseByIdAsync(courseId);
+
+                _logger.LogInformation("Course retrieval completed for ID: {CourseId}, Found: {Found}",
+                    courseId, result.Success);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetCourseByIdAsync for ID: {CourseId}", courseId);
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Create new course with validation
+        /// </summary>
+        /// <param name="request">Course creation data</param>
+        /// <returns>Created course details</returns>
+        public async Task<ApiResponse<Course>> CreateCourseAsync(CreateCourseRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Creating new course: {CourseNo}", request?.CourseNo);
+
+                // Validate input
+                if (request == null)
+                {
+                    _logger.LogWarning("CreateCourseAsync called with null request");
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course data is required",
+                        Data = null
+                    };
+                }
+
+                // Additional business validation
+                if (string.IsNullOrWhiteSpace(request.CourseNo))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course number is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.CourseName))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course name is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.MainDepartment))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Main department is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Area))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Area is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Skill))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Skill is required",
+                        Data = null
+                    };
+                }
+
+                // Validate URL format if provided
+                if (!string.IsNullOrWhiteSpace(request.Link))
+                {
+                    if (!Uri.TryCreate(request.Link, UriKind.Absolute, out _))
+                    {
+                        return new ApiResponse<Course>
+                        {
+                            Success = false,
+                            Message = "Invalid URL format for course link",
+                            Data = null
+                        };
+                    }
+                }
+
+                var result = await _repository.CreateCourseAsync(request);
+
+                if (result.Success)
+                {
+                    _logger.LogInformation("Successfully created course: {CourseNo} with ID: {CourseId}",
+                        request.CourseNo, result.Data?.Id);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to create course: {CourseNo}, Reason: {Message}",
+                        request.CourseNo, result.Message);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in CreateCourseAsync for course: {CourseNo}", request?.CourseNo);
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while creating the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Update existing course with validation
+        /// </summary>
+        /// <param name="request">Course update data</param>
+        /// <returns>Updated course details</returns>
+        public async Task<ApiResponse<Course>> UpdateCourseAsync(UpdateCourseRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("Updating course ID: {CourseId}", request?.ID);
+
+                // Validate input
+                if (request == null)
+                {
+                    _logger.LogWarning("UpdateCourseAsync called with null request");
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course data is required",
+                        Data = null
+                    };
+                }
+
+                if (request.ID <= 0)
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Valid course ID is required",
+                        Data = null
+                    };
+                }
+
+                // Additional business validation
+                if (string.IsNullOrWhiteSpace(request.CourseNo))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course number is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.CourseName))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course name is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.MainDepartment))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Main department is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Area))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Area is required",
+                        Data = null
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(request.Skill))
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Skill is required",
+                        Data = null
+                    };
+                }
+
+                // Validate URL format if provided
+                if (!string.IsNullOrWhiteSpace(request.Link))
+                {
+                    if (!Uri.TryCreate(request.Link, UriKind.Absolute, out _))
+                    {
+                        return new ApiResponse<Course>
+                        {
+                            Success = false,
+                            Message = "Invalid URL format for course link",
+                            Data = null
+                        };
+                    }
+                }
+
+                var result = await _repository.UpdateCourseAsync(request);
+
+                if (result.Success)
+                {
+                    _logger.LogInformation("Successfully updated course ID: {CourseId}", request.ID);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to update course ID: {CourseId}, Reason: {Message}",
+                        request.ID, result.Message);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in UpdateCourseAsync for course ID: {CourseId}", request?.ID);
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while updating the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Delete course with business rule validation
+        /// </summary>
+        /// <param name="courseId">Course ID to delete</param>
+        /// <returns>Success status</returns>
+        public async Task<ApiResponse<bool>> DeleteCourseAsync(int courseId)
+        {
+            try
+            {
+                _logger.LogInformation("Deleting course ID: {CourseId}", courseId);
+
+                if (courseId <= 0)
+                {
+                    _logger.LogWarning("Invalid course ID provided for deletion: {CourseId}", courseId);
+                    return new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Course ID must be greater than 0",
+                        Data = false
+                    };
+                }
+
+                var result = await _repository.DeleteCourseAsync(courseId);
+
+                if (result.Success)
+                {
+                    _logger.LogInformation("Successfully deleted course ID: {CourseId}", courseId);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to delete course ID: {CourseId}, Reason: {Message}",
+                        courseId, result.Message);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in DeleteCourseAsync for course ID: {CourseId}", courseId);
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An error occurred while deleting the course",
+                    Data = false
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get all available departments
+        /// </summary>
+        /// <returns>List of department names</returns>
+        public async Task<ApiResponse<List<string>>> GetDepartmentsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Getting all departments");
+
+                var result = await _repository.GetDepartmentsAsync();
+
+                _logger.LogInformation("Retrieved {Count} departments", result.Data?.Count ?? 0);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetDepartmentsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving departments",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get areas, optionally filtered by department
+        /// </summary>
+        /// <param name="department">Optional department filter</param>
+        /// <returns>List of area names</returns>
+        public async Task<ApiResponse<List<string>>> GetAreasAsync(string? department = null)
+        {
+            try
+            {
+                _logger.LogInformation("Getting areas for department: {Department}", department ?? "All");
+
+                var result = await _repository.GetAreasAsync(department);
+
+                _logger.LogInformation("Retrieved {Count} areas", result.Data?.Count ?? 0);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetAreasAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving areas",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get skills, optionally filtered by area
+        /// </summary>
+        /// <param name="area">Optional area filter</param>
+        /// <returns>List of skill names</returns>
+        public async Task<ApiResponse<List<string>>> GetSkillsAsync(string? area = null)
+        {
+            try
+            {
+                _logger.LogInformation("Getting skills for area: {Area}", area ?? "All");
+
+                var result = await _repository.GetSkillsAsync(area);
+
+                _logger.LogInformation("Retrieved {Count} skills", result.Data?.Count ?? 0);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetSkillsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving skills",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get all available course levels
+        /// </summary>
+        /// <returns>List of level names</returns>
+        public async Task<ApiResponse<List<string>>> GetLevelsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Getting all course levels");
+
+                var result = await _repository.GetLevelsAsync();
+
+                _logger.LogInformation("Retrieved {Count} levels", result.Data?.Count ?? 0);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetLevelsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving levels",
+                    Data = new List<string>()
                 };
             }
         }

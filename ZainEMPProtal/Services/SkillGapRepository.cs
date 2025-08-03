@@ -1,4 +1,5 @@
 ﻿using Microsoft.Data.SqlClient;
+using System.Data;
 using ZainEMPProtal.Models.SkillGapAnalysis;
 
 namespace ZainEMPProtal.Services
@@ -17,6 +18,15 @@ namespace ZainEMPProtal.Services
         Task<SkillGapViewModel> RejectProfileAsync(SkillGapViewModel viewModel, int id, string rejectionReason, bool sendToHR);
         Task<SkillGapViewModel> ApproveProfileAsync(SkillGapViewModel viewModel, int id);
         Task AddFeedbackAsync(string employeeNumber, string employeeName, string feedback, string area, string skill, string course);
+        Task<ApiResponse<PaginatedCourseResult>> GetCoursesAsync(CourseSearchRequest request);
+        Task<ApiResponse<Course>> GetCourseByIdAsync(int courseId);
+        Task<ApiResponse<Course>> CreateCourseAsync(CreateCourseRequest request);
+        Task<ApiResponse<Course>> UpdateCourseAsync(UpdateCourseRequest request);
+        Task<ApiResponse<bool>> DeleteCourseAsync(int courseId);
+        Task<ApiResponse<List<string>>> GetDepartmentsAsync();
+        Task<ApiResponse<List<string>>> GetAreasAsync(string? department = null);
+        Task<ApiResponse<List<string>>> GetSkillsAsync(string? area = null);
+        Task<ApiResponse<List<string>>> GetLevelsAsync();
     }
     public class SkillGapRepository : ISkillGapRepository
     {
@@ -753,38 +763,38 @@ namespace ZainEMPProtal.Services
             try
             {
 
-          
-            var sql = division == null
-                ? "SELECT SELECT ID,CourseNo,MainDepartment,Area,Skill,CourseName,Level,Link,CourseDivision FROM Courses WHERE MainDepartment = @Department"
-                : "SELECT SELECT ID,CourseNo,MainDepartment,Area,Skill,CourseName,Level,Link,CourseDivision FROM Courses WHERE MainDepartment = @Department AND CourseDivision = @Division";
 
-            var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@Department", department);
-            if (division != null)
-                command.Parameters.AddWithValue("@Division", division);
+                var sql = division == null
+                    ? "SELECT  ID,CourseNo,MainDepartment,Area,Skill,CourseName,Level,Link,CourseDivision FROM Courses WHERE MainDepartment = @Department"
+                    : "SELECT  ID,CourseNo,MainDepartment,Area,Skill,CourseName,Level,Link,CourseDivision FROM Courses WHERE MainDepartment = @Department AND CourseDivision = @Division";
 
-            var courses = new List<Course>();
+                var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@Department", department);
+                if (division != null)
+                    command.Parameters.AddWithValue("@Division", division);
 
-            await using var reader = await command.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                courses.Add(new Course
+                var courses = new List<Course>();
+
+                await using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
                 {
-                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                    Name = reader.GetString(reader.GetOrdinal("CourseName")),
-                    MainDepartment = reader.IsDBNull(reader.GetOrdinal("MainDepartment")) ? null : reader.GetString(reader.GetOrdinal("MainDepartment")),
-                    CourseDivision = reader.IsDBNull(reader.GetOrdinal("CourseDivision")) ? null : reader.GetString(reader.GetOrdinal("CourseDivision")),
-                    Area = reader.IsDBNull(reader.GetOrdinal("Area")) ? null : reader.GetString(reader.GetOrdinal("Area")),
-                    Skill = reader.IsDBNull(reader.GetOrdinal("Skill")) ? null : reader.GetString(reader.GetOrdinal("Skill")),
-                    Link = reader.IsDBNull(reader.GetOrdinal("Link")) ? null : reader.GetString(reader.GetOrdinal("Link")),
-                    Level = reader.IsDBNull(reader.GetOrdinal("Level")) ? null : reader.GetString(reader.GetOrdinal("Level"))
-                });
-            }
+                    courses.Add(new Course
+                    {
+                        Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                        Name = reader.GetString(reader.GetOrdinal("CourseName")),
+                        MainDepartment = reader.IsDBNull(reader.GetOrdinal("MainDepartment")) ? null : reader.GetString(reader.GetOrdinal("MainDepartment")),
+                        CourseDivision = reader.IsDBNull(reader.GetOrdinal("CourseDivision")) ? null : reader.GetString(reader.GetOrdinal("CourseDivision")),
+                        Area = reader.IsDBNull(reader.GetOrdinal("Area")) ? null : reader.GetString(reader.GetOrdinal("Area")),
+                        Skill = reader.IsDBNull(reader.GetOrdinal("Skill")) ? null : reader.GetString(reader.GetOrdinal("Skill")),
+                        Link = reader.IsDBNull(reader.GetOrdinal("Link")) ? null : reader.GetString(reader.GetOrdinal("Link")),
+                        Level = reader.IsDBNull(reader.GetOrdinal("Level")) ? null : reader.GetString(reader.GetOrdinal("Level"))
+                    });
+                }
 
-            return courses;
-            }catch(Exception ex)
+                return courses;
+            } catch (Exception ex)
             {
-               throw new Exception(ex.Message);
+                throw new Exception(ex.Message);
             }
         }
         private async Task<Profiles> GetProfileAsync(SqlConnection connection, string managerPF, string directorPF, SqlTransaction transaction = null)
@@ -847,5 +857,645 @@ namespace ZainEMPProtal.Services
 
             return null;
         }
+    
+     /// <summary>
+    /// Get courses with search and pagination
+    /// </summary>
+    public async Task<ApiResponse<PaginatedCourseResult>> GetCoursesAsync(CourseSearchRequest request)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var whereConditions = new List<string>();
+                var parameters = new List<SqlParameter>();
+
+                // Build dynamic WHERE clause
+                if (!string.IsNullOrWhiteSpace(request.CourseNo))
+                {
+                    whereConditions.Add("CourseNo LIKE @CourseNo");
+                    parameters.Add(new SqlParameter("@CourseNo", $"%{request.CourseNo.Trim()}%"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.MainDepartment))
+                {
+                    whereConditions.Add("MainDepartment LIKE @MainDepartment");
+                    parameters.Add(new SqlParameter("@MainDepartment", $"%{request.MainDepartment.Trim()}%"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.Area))
+                {
+                    whereConditions.Add("Area LIKE @Area");
+                    parameters.Add(new SqlParameter("@Area", $"%{request.Area.Trim()}%"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.Skill))
+                {
+                    whereConditions.Add("Skill LIKE @Skill");
+                    parameters.Add(new SqlParameter("@Skill", $"%{request.Skill.Trim()}%"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.CourseName))
+                {
+                    whereConditions.Add("CourseName LIKE @CourseName");
+                    parameters.Add(new SqlParameter("@CourseName", $"%{request.CourseName.Trim()}%"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.Level))
+                {
+                    whereConditions.Add("Level = @Level");
+                    parameters.Add(new SqlParameter("@Level", request.Level.Trim()));
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.CourseDivision))
+                {
+                    whereConditions.Add("CourseDivision LIKE @CourseDivision");
+                    parameters.Add(new SqlParameter("@CourseDivision", $"%{request.CourseDivision.Trim()}%"));
+                }
+
+                var whereClause = whereConditions.Any() ? "WHERE " + string.Join(" AND ", whereConditions) : "";
+
+                // Count query
+                var countSql = $"SELECT COUNT(*) FROM Courses {whereClause}";
+                var countCommand = new SqlCommand(countSql, connection);
+                foreach (var param in parameters)
+                {
+                    countCommand.Parameters.Add(new SqlParameter(param.ParameterName, param.Value));
+                }
+
+                var totalCount = (int)await countCommand.ExecuteScalarAsync();
+
+                // Data query with pagination
+                var offset = (request.PageNumber - 1) * request.PageSize;
+                var dataSql = $@"
+                SELECT ID, CourseNo, MainDepartment, Area, Skill, CourseName, Level, Link, CourseDivision
+                FROM Courses 
+                {whereClause}
+                ORDER BY CourseName
+                OFFSET @Offset ROWS 
+                FETCH NEXT @PageSize ROWS ONLY";
+
+                var dataCommand = new SqlCommand(dataSql, connection);
+                foreach (var param in parameters)
+                {
+                    dataCommand.Parameters.Add(new SqlParameter(param.ParameterName, param.Value));
+                }
+                dataCommand.Parameters.Add(new SqlParameter("@Offset", offset));
+                dataCommand.Parameters.Add(new SqlParameter("@PageSize", request.PageSize));
+
+                var courses = new List<Course>();
+                using var reader = await dataCommand.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    courses.Add(new Course
+                    {
+                        Id = reader.GetInt32("ID"),
+                        CourseNo = reader.IsDBNull("CourseNo") ? string.Empty : reader.GetString("CourseNo"),
+                        MainDepartment = reader.IsDBNull("MainDepartment") ? string.Empty : reader.GetString("MainDepartment"),
+                        Area = reader.IsDBNull("Area") ? string.Empty : reader.GetString("Area"),
+                        Skill = reader.IsDBNull("Skill") ? string.Empty : reader.GetString("Skill"),
+                        Name = reader.IsDBNull("CourseName") ? string.Empty : reader.GetString("CourseName"),
+                        Level = reader.IsDBNull("Level") ? string.Empty : reader.GetString("Level"),
+                        Link = reader.IsDBNull("Link") ? string.Empty : reader.GetString("Link"),
+                        CourseDivision = reader.IsDBNull("CourseDivision") ? string.Empty : reader.GetString("CourseDivision")
+                    });
+                }
+
+                var result = new PaginatedCourseResult
+                {
+                    Courses = courses,
+                    TotalCount = totalCount,
+                    PageNumber = request.PageNumber,
+                    PageSize = request.PageSize
+                };
+
+                return new ApiResponse<PaginatedCourseResult>
+                {
+                    Success = true,
+                    Message = $"Retrieved {courses.Count} courses from {totalCount} total",
+                    Data = result
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetCoursesAsync");
+                return new ApiResponse<PaginatedCourseResult>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving courses",
+                    Data = new PaginatedCourseResult()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get course by ID
+        /// </summary>
+        public async Task<ApiResponse<Course>> GetCourseByIdAsync(int courseId)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = @"
+                SELECT ID, CourseNo, MainDepartment, Area, Skill, CourseName, Level, Link, CourseDivision
+                FROM Courses 
+                WHERE ID = @CourseId";
+
+                var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@CourseId", courseId);
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var course = new Course
+                    {
+                        Id = reader.GetInt32("ID"),
+                        CourseNo = reader.IsDBNull("CourseNo") ? string.Empty : reader.GetString("CourseNo"),
+                        MainDepartment = reader.IsDBNull("MainDepartment") ? string.Empty : reader.GetString("MainDepartment"),
+                        Area = reader.IsDBNull("Area") ? string.Empty : reader.GetString("Area"),
+                        Skill = reader.IsDBNull("Skill") ? string.Empty : reader.GetString("Skill"),
+                        Name = reader.IsDBNull("CourseName") ? string.Empty : reader.GetString("CourseName"),
+                        Level = reader.IsDBNull("Level") ? string.Empty : reader.GetString("Level"),
+                        Link = reader.IsDBNull("Link") ? string.Empty : reader.GetString("Link"),
+                        CourseDivision = reader.IsDBNull("CourseDivision") ? string.Empty : reader.GetString("CourseDivision")
+                    };
+
+                    return new ApiResponse<Course>
+                    {
+                        Success = true,
+                        Message = "Course retrieved successfully",
+                        Data = course
+                    };
+                }
+
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "Course not found",
+                    Data = null
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetCourseByIdAsync for ID: {CourseId}", courseId);
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Create new course
+        /// </summary>
+        public async Task<ApiResponse<Course>> CreateCourseAsync(CreateCourseRequest request)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Check if course number already exists
+                var checkSql = "SELECT COUNT(*) FROM Courses WHERE CourseNo = @CourseNo";
+                var checkCommand = new SqlCommand(checkSql, connection);
+                checkCommand.Parameters.AddWithValue("@CourseNo", request.CourseNo.Trim());
+
+                var existingCount = (int)await checkCommand.ExecuteScalarAsync();
+                if (existingCount > 0)
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course number already exists",
+                        Data = null
+                    };
+                }
+
+                var sql = @"
+                INSERT INTO Courses (CourseNo, MainDepartment, Area, Skill, CourseName, Level, Link, CourseDivision)
+                OUTPUT INSERTED.ID, INSERTED.CourseNo, INSERTED.MainDepartment, INSERTED.Area, 
+                       INSERTED.Skill, INSERTED.CourseName, INSERTED.Level, INSERTED.Link, INSERTED.CourseDivision
+                VALUES (@CourseNo, @MainDepartment, @Area, @Skill, @CourseName, @Level, @Link, @CourseDivision)";
+
+                var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@CourseNo", request.CourseNo.Trim());
+                command.Parameters.AddWithValue("@MainDepartment", request.MainDepartment.Trim());
+                command.Parameters.AddWithValue("@Area", request.Area.Trim());
+                command.Parameters.AddWithValue("@Skill", request.Skill.Trim());
+                command.Parameters.AddWithValue("@CourseName", request.CourseName.Trim());
+                command.Parameters.AddWithValue("@Level", string.IsNullOrWhiteSpace(request.Level) ? DBNull.Value : request.Level.Trim());
+                command.Parameters.AddWithValue("@Link", string.IsNullOrWhiteSpace(request.Link) ? DBNull.Value : request.Link.Trim());
+                command.Parameters.AddWithValue("@CourseDivision", string.IsNullOrWhiteSpace(request.CourseDivision) ? DBNull.Value : request.CourseDivision.Trim());
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var course = new Course
+                    {
+                        Id = reader.GetInt32("ID"),
+                        CourseNo = reader.GetString("CourseNo"),
+                        MainDepartment = reader.GetString("MainDepartment"),
+                        Area = reader.GetString("Area"),
+                        Skill = reader.GetString("Skill"),
+                        Name = reader.GetString("CourseName"),
+                        Level = reader.IsDBNull("Level") ? string.Empty : reader.GetString("Level"),
+                        Link = reader.IsDBNull("Link") ? string.Empty : reader.GetString("Link"),
+                        CourseDivision = reader.IsDBNull("CourseDivision") ? string.Empty : reader.GetString("CourseDivision")
+                    };
+
+                    return new ApiResponse<Course>
+                    {
+                        Success = true,
+                        Message = "Course created successfully",
+                        Data = course
+                    };
+                }
+
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "Failed to create course",
+                    Data = null
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in CreateCourseAsync");
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while creating the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Update existing course
+        /// </summary>
+        public async Task<ApiResponse<Course>> UpdateCourseAsync(UpdateCourseRequest request)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Check if course exists
+                var checkSql = "SELECT COUNT(*) FROM Courses WHERE ID = @ID";
+                var checkCommand = new SqlCommand(checkSql, connection);
+                checkCommand.Parameters.AddWithValue("@ID", request.ID);
+
+                var existingCount = (int)await checkCommand.ExecuteScalarAsync();
+                if (existingCount == 0)
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course not found",
+                        Data = null
+                    };
+                }
+
+                // Check if course number is taken by another course
+                var duplicateCheckSql = "SELECT COUNT(*) FROM Courses WHERE CourseNo = @CourseNo AND ID != @ID";
+                var duplicateCheckCommand = new SqlCommand(duplicateCheckSql, connection);
+                duplicateCheckCommand.Parameters.AddWithValue("@CourseNo", request.CourseNo.Trim());
+                duplicateCheckCommand.Parameters.AddWithValue("@ID", request.ID);
+
+                var duplicateCount = (int)await duplicateCheckCommand.ExecuteScalarAsync();
+                if (duplicateCount > 0)
+                {
+                    return new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course number already exists for another course",
+                        Data = null
+                    };
+                }
+
+                var sql = @"
+                UPDATE Courses 
+                SET CourseNo = @CourseNo, 
+                    MainDepartment = @MainDepartment, 
+                    Area = @Area, 
+                    Skill = @Skill, 
+                    CourseName = @CourseName, 
+                    Level = @Level, 
+                    Link = @Link, 
+                    CourseDivision = @CourseDivision
+                WHERE ID = @ID;
+                
+                SELECT ID, CourseNo, MainDepartment, Area, Skill, CourseName, Level, Link, CourseDivision
+                FROM Courses WHERE ID = @ID";
+
+                var command = new SqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@ID", request.ID);
+                command.Parameters.AddWithValue("@CourseNo", request.CourseNo.Trim());
+                command.Parameters.AddWithValue("@MainDepartment", request.MainDepartment.Trim());
+                command.Parameters.AddWithValue("@Area", request.Area.Trim());
+                command.Parameters.AddWithValue("@Skill", request.Skill.Trim());
+                command.Parameters.AddWithValue("@CourseName", request.CourseName.Trim());
+                command.Parameters.AddWithValue("@Level", string.IsNullOrWhiteSpace(request.Level) ? DBNull.Value : request.Level.Trim());
+                command.Parameters.AddWithValue("@Link", string.IsNullOrWhiteSpace(request.Link) ? DBNull.Value : request.Link.Trim());
+                command.Parameters.AddWithValue("@CourseDivision", string.IsNullOrWhiteSpace(request.CourseDivision) ? DBNull.Value : request.CourseDivision.Trim());
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var course = new Course
+                    {
+                        Id = reader.GetInt32("ID"),
+                        CourseNo = reader.GetString("CourseNo"),
+                        MainDepartment = reader.GetString("MainDepartment"),
+                        Area = reader.GetString("Area"),
+                        Skill = reader.GetString("Skill"),
+                        Name = reader.GetString("CourseName"),
+                        Level = reader.IsDBNull("Level") ? string.Empty : reader.GetString("Level"),
+                        Link = reader.IsDBNull("Link") ? string.Empty : reader.GetString("Link"),
+                        CourseDivision = reader.IsDBNull("CourseDivision") ? string.Empty : reader.GetString("CourseDivision")
+                    };
+
+                    return new ApiResponse<Course>
+                    {
+                        Success = true,
+                        Message = "Course updated successfully",
+                        Data = course
+                    };
+                }
+
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "Failed to update course",
+                    Data = null
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in UpdateCourseAsync for ID: {CourseId}", request.ID);
+                return new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An error occurred while updating the course",
+                    Data = null
+                };
+            }
+        }
+
+        /// <summary>
+        /// Delete course (soft delete or hard delete based on business rules)
+        /// </summary>
+        public async Task<ApiResponse<bool>> DeleteCourseAsync(int courseId)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                // Check if course exists
+                var checkSql = "SELECT COUNT(*) FROM Courses WHERE ID = @ID";
+                var checkCommand = new SqlCommand(checkSql, connection);
+                checkCommand.Parameters.AddWithValue("@ID", courseId);
+
+                var existingCount = (int)await checkCommand.ExecuteScalarAsync();
+                if (existingCount == 0)
+                {
+                    return new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Course not found",
+                        Data = false
+                    };
+                }
+
+                // Check if course is being used in EmployeeCourses
+                var usageCheckSql = "SELECT COUNT(*) FROM EmployeeCourses WHERE CourseID = @CourseID";
+                var usageCheckCommand = new SqlCommand(usageCheckSql, connection);
+                usageCheckCommand.Parameters.AddWithValue("@CourseID", courseId);
+
+                var usageCount = (int)await usageCheckCommand.ExecuteScalarAsync();
+                if (usageCount > 0)
+                {
+                    return new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Cannot delete course as it is currently assigned to employees",
+                        Data = false
+                    };
+                }
+
+                // Hard delete the course
+                var deleteSql = "DELETE FROM Courses WHERE ID = @ID";
+                var deleteCommand = new SqlCommand(deleteSql, connection);
+                deleteCommand.Parameters.AddWithValue("@ID", courseId);
+
+                var rowsAffected = await deleteCommand.ExecuteNonQueryAsync();
+
+                return new ApiResponse<bool>
+                {
+                    Success = rowsAffected > 0,
+                    Message = rowsAffected > 0 ? "Course deleted successfully" : "Failed to delete course",
+                    Data = rowsAffected > 0
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in DeleteCourseAsync for ID: {CourseId}", courseId);
+                return new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An error occurred while deleting the course",
+                    Data = false
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get distinct departments
+        /// </summary>
+        public async Task<ApiResponse<List<string>>> GetDepartmentsAsync()
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = "SELECT DISTINCT MainDepartment FROM Courses WHERE MainDepartment IS NOT NULL AND MainDepartment != '' ORDER BY MainDepartment";
+                var command = new SqlCommand(sql, connection);
+
+                var departments = new List<string>();
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    departments.Add(reader.GetString("MainDepartment"));
+                }
+
+                return new ApiResponse<List<string>>
+                {
+                    Success = true,
+                    Message = $"Retrieved {departments.Count} departments",
+                    Data = departments
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetDepartmentsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving departments",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get distinct areas, optionally filtered by department
+        /// </summary>
+        public async Task<ApiResponse<List<string>>> GetAreasAsync(string? department = null)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = "SELECT DISTINCT Area FROM Courses WHERE Area IS NOT NULL AND Area != ''";
+                var command = new SqlCommand(sql, connection);
+
+                if (!string.IsNullOrWhiteSpace(department))
+                {
+                    sql += " AND MainDepartment = @Department";
+                    command = new SqlCommand(sql, connection);
+                    command.Parameters.AddWithValue("@Department", department);
+                }
+
+                sql += " ORDER BY Area";
+                command = new SqlCommand(sql, connection);
+                if (!string.IsNullOrWhiteSpace(department))
+                {
+                    command.Parameters.AddWithValue("@Department", department);
+                }
+
+                var areas = new List<string>();
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    areas.Add(reader.GetString("Area"));
+                }
+
+                return new ApiResponse<List<string>>
+                {
+                    Success = true,
+                    Message = $"Retrieved {areas.Count} areas",
+                    Data = areas
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetAreasAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving areas",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get distinct skills, optionally filtered by area
+        /// </summary>
+        public async Task<ApiResponse<List<string>>> GetSkillsAsync(string? area = null)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = "SELECT DISTINCT Skill FROM Courses WHERE Skill IS NOT NULL AND Skill != ''";
+                var command = new SqlCommand(sql, connection);
+
+                if (!string.IsNullOrWhiteSpace(area))
+                {
+                    sql += " AND Area = @Area";
+                    command = new SqlCommand(sql, connection);
+                    command.Parameters.AddWithValue("@Area", area);
+                }
+
+                sql += " ORDER BY Skill";
+                command = new SqlCommand(sql, connection);
+                if (!string.IsNullOrWhiteSpace(area))
+                {
+                    command.Parameters.AddWithValue("@Area", area);
+                }
+
+                var skills = new List<string>();
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    skills.Add(reader.GetString("Skill"));
+                }
+
+                return new ApiResponse<List<string>>
+                {
+                    Success = true,
+                    Message = $"Retrieved {skills.Count} skills",
+                    Data = skills
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetSkillsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving skills",
+                    Data = new List<string>()
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get distinct levels
+        /// </summary>
+        public async Task<ApiResponse<List<string>>> GetLevelsAsync()
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var sql = "SELECT DISTINCT Level FROM Courses WHERE Level IS NOT NULL AND Level != '' ORDER BY Level";
+                var command = new SqlCommand(sql, connection);
+
+                var levels = new List<string>();
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    levels.Add(reader.GetString("Level"));
+                }
+
+                return new ApiResponse<List<string>>
+                {
+                    Success = true,
+                    Message = $"Retrieved {levels.Count} levels",
+                    Data = levels
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetLevelsAsync");
+                return new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An error occurred while retrieving levels",
+                    Data = new List<string>()
+                };
+            }
+        } }
     }
-}

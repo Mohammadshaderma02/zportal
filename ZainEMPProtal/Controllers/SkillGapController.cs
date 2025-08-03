@@ -670,6 +670,650 @@ namespace ZainEMPProtal.Controllers
                 Service = "SkillGap Analysis API"
             });
         }
+
+
+
+
+        /// <summary>
+        /// Get courses with search and pagination
+        /// </summary>
+        /// <param name="request">Search and pagination parameters</param>
+        /// <returns>Paginated list of courses</returns>
+        /// <response code="200">Returns the paginated list of courses</response>
+        /// <response code="400">If the request parameters are invalid</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpPost("courses/search")]
+        [ProducesResponseType(typeof(ApiResponse<PaginatedCourseResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<PaginatedCourseResult>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<PaginatedCourseResult>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<PaginatedCourseResult>>> GetCourses(
+            [FromBody] CourseSearchRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("POST /api/skillgap/courses/search - Request received");
+
+                if (request == null)
+                {
+                    _logger.LogWarning("GetCourses called with null request");
+                    return BadRequest(new ApiResponse<PaginatedCourseResult>
+                    {
+                        Success = false,
+                        Message = "Search request cannot be null",
+                        Data = new PaginatedCourseResult()
+                    });
+                }
+
+                var result = await _skillGapService.GetCoursesAsync(request);
+
+                _logger.LogInformation("GetCourses completed, returned {Count} courses",
+                    result.Data?.Courses?.Count ?? 0);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetCourses");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<PaginatedCourseResult>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new PaginatedCourseResult()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get course by ID
+        /// </summary>
+        /// <param name="courseId">Course ID</param>
+        /// <returns>Course details</returns>
+        /// <response code="200">Returns the course details</response>
+        /// <response code="400">If the course ID is invalid</response>
+        /// <response code="404">If the course is not found</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/{courseId}")]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<Course>>> GetCourseById(
+            [FromRoute][Required] int courseId)
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/{CourseId} - Request received", courseId);
+
+                if (courseId <= 0)
+                {
+                    _logger.LogWarning("GetCourseById called with invalid course ID: {CourseId}", courseId);
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course ID must be greater than 0",
+                        Data = null
+                    });
+                }
+
+                var result = await _skillGapService.GetCourseByIdAsync(courseId);
+
+                if (!result.Success && result.Message.Contains("not found"))
+                {
+                    _logger.LogInformation("Course not found: {CourseId}", courseId);
+                    return NotFound(result);
+                }
+
+                _logger.LogInformation("GetCourseById completed for course: {CourseId}", courseId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetCourseById for course: {CourseId}", courseId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Create new course
+        /// </summary>
+        /// <param name="request">Course creation data</param>
+        /// <returns>Created course details</returns>
+        /// <response code="201">Returns the created course</response>
+        /// <response code="400">If the request data is invalid</response>
+        /// <response code="409">If the course number already exists</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpPost("courses")]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status201Created)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<Course>>> CreateCourse(
+            [FromBody][Required] CreateCourseRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("POST /api/skillgap/courses - Request received for course: {CourseNo}",
+                    request?.CourseNo);
+
+                if (request == null)
+                {
+                    _logger.LogWarning("CreateCourse called with null request");
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course data is required",
+                        Data = null
+                    });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState
+                        .Where(x => x.Value.Errors.Count > 0)
+                        .Select(x => $"{x.Key}: {string.Join(", ", x.Value.Errors.Select(e => e.ErrorMessage))}")
+                        .ToList();
+
+                    _logger.LogWarning("CreateCourse called with invalid model state: {Errors}",
+                        string.Join("; ", errors));
+
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = $"Validation failed: {string.Join("; ", errors)}",
+                        Data = null
+                    });
+                }
+
+                var result = await _skillGapService.CreateCourseAsync(request);
+
+                if (!result.Success)
+                {
+                    if (result.Message.Contains("already exists"))
+                    {
+                        return Conflict(result);
+                    }
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("CreateCourse completed for course: {CourseNo} with ID: {CourseId}",
+                    request.CourseNo, result.Data?.Id);
+
+                return CreatedAtAction(
+                    nameof(GetCourseById),
+                    new { courseId = result.Data.Id },
+                    result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in CreateCourse for course: {CourseNo}",
+                    request?.CourseNo);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update existing course
+        /// </summary>
+        /// <param name="courseId">Course ID to update</param>
+        /// <param name="request">Course update data</param>
+        /// <returns>Updated course details</returns>
+        /// <response code="200">Returns the updated course</response>
+        /// <response code="400">If the request data is invalid</response>
+        /// <response code="404">If the course is not found</response>
+        /// <response code="409">If the course number already exists for another course</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpPut("courses/{courseId}")]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(ApiResponse<Course>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<Course>>> UpdateCourse(
+            [FromRoute][Required] int courseId,
+            [FromBody][Required] UpdateCourseRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("PUT /api/skillgap/courses/{CourseId} - Request received", courseId);
+
+                if (courseId <= 0)
+                {
+                    _logger.LogWarning("UpdateCourse called with invalid course ID: {CourseId}", courseId);
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course ID must be greater than 0",
+                        Data = null
+                    });
+                }
+
+                if (request == null)
+                {
+                    _logger.LogWarning("UpdateCourse called with null request");
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course data is required",
+                        Data = null
+                    });
+                }
+
+                if (courseId != request.ID)
+                {
+                    _logger.LogWarning("UpdateCourse: Route ID {RouteId} doesn't match request ID {RequestId}",
+                        courseId, request.ID);
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = "Course ID in route must match course ID in request body",
+                        Data = null
+                    });
+                }
+
+                // Validate model state
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState
+                        .Where(x => x.Value.Errors.Count > 0)
+                        .Select(x => $"{x.Key}: {string.Join(", ", x.Value.Errors.Select(e => e.ErrorMessage))}")
+                        .ToList();
+
+                    _logger.LogWarning("UpdateCourse called with invalid model state: {Errors}",
+                        string.Join("; ", errors));
+
+                    return BadRequest(new ApiResponse<Course>
+                    {
+                        Success = false,
+                        Message = $"Validation failed: {string.Join("; ", errors)}",
+                        Data = null
+                    });
+                }
+
+                var result = await _skillGapService.UpdateCourseAsync(request);
+
+                if (!result.Success)
+                {
+                    if (result.Message.Contains("not found"))
+                    {
+                        return NotFound(result);
+                    }
+                    if (result.Message.Contains("already exists"))
+                    {
+                        return Conflict(result);
+                    }
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("UpdateCourse completed for course ID: {CourseId}", courseId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in UpdateCourse for course ID: {CourseId}", courseId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<Course>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = null
+                });
+            }
+        }
+
+        /// <summary>
+        /// Delete course
+        /// </summary>
+        /// <param name="courseId">Course ID to delete</param>
+        /// <returns>Deletion result</returns>
+        /// <response code="200">Course deleted successfully</response>
+        /// <response code="400">If the course ID is invalid</response>
+        /// <response code="404">If the course is not found</response>
+        /// <response code="409">If the course cannot be deleted due to dependencies</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpDelete("courses/{courseId}")]
+        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status404NotFound)]
+        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<bool>>> DeleteCourse(
+            [FromRoute][Required] int courseId)
+        {
+            try
+            {
+                _logger.LogInformation("DELETE /api/skillgap/courses/{CourseId} - Request received", courseId);
+
+                if (courseId <= 0)
+                {
+                    _logger.LogWarning("DeleteCourse called with invalid course ID: {CourseId}", courseId);
+                    return BadRequest(new ApiResponse<bool>
+                    {
+                        Success = false,
+                        Message = "Course ID must be greater than 0",
+                        Data = false
+                    });
+                }
+
+                var result = await _skillGapService.DeleteCourseAsync(courseId);
+
+                if (!result.Success)
+                {
+                    if (result.Message.Contains("not found"))
+                    {
+                        return NotFound(result);
+                    }
+                    if (result.Message.Contains("assigned to employees") || result.Message.Contains("dependencies"))
+                    {
+                        return Conflict(result);
+                    }
+                    return BadRequest(result);
+                }
+
+                _logger.LogInformation("DeleteCourse completed for course ID: {CourseId}", courseId);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in DeleteCourse for course ID: {CourseId}", courseId);
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<bool>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = false
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get all available departments
+        /// </summary>
+        /// <returns>List of department names</returns>
+        /// <response code="200">Returns the list of departments</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/departments")]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<List<string>>>> GetDepartments()
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/departments - Request received");
+
+                var result = await _skillGapService.GetDepartmentsAsync();
+
+                _logger.LogInformation("GetDepartments completed, returned {Count} departments",
+                    result.Data?.Count ?? 0);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetDepartments");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new List<string>()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get areas, optionally filtered by department
+        /// </summary>
+        /// <param name="department">Optional department filter</param>
+        /// <returns>List of area names</returns>
+        /// <response code="200">Returns the list of areas</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/areas")]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<List<string>>>> GetAreas(
+            [FromQuery] string? department = null)
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/areas - Request received for department: {Department}",
+                    department ?? "All");
+
+                var result = await _skillGapService.GetAreasAsync(department);
+
+                _logger.LogInformation("GetAreas completed, returned {Count} areas",
+                    result.Data?.Count ?? 0);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetAreas");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new List<string>()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get skills, optionally filtered by area
+        /// </summary>
+        /// <param name="area">Optional area filter</param>
+        /// <returns>List of skill names</returns>
+        /// <response code="200">Returns the list of skills</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/skills")]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<List<string>>>> GetSkills(
+            [FromQuery] string? area = null)
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/skills - Request received for area: {Area}",
+                    area ?? "All");
+
+                var result = await _skillGapService.GetSkillsAsync(area);
+
+                _logger.LogInformation("GetSkills completed, returned {Count} skills",
+                    result.Data?.Count ?? 0);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetSkills");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new List<string>()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get all available course levels
+        /// </summary>
+        /// <returns>List of level names</returns>
+        /// <response code="200">Returns the list of levels</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/levels")]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<List<string>>>> GetLevels()
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/levels - Request received");
+
+                var result = await _skillGapService.GetLevelsAsync();
+
+                _logger.LogInformation("GetLevels completed, returned {Count} levels",
+                    result.Data?.Count ?? 0);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetLevels");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<List<string>>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new List<string>()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get course statistics and summary information
+        /// </summary>
+        /// <returns>Course statistics</returns>
+        /// <response code="200">Returns the course statistics</response>
+        /// <response code="500">If an internal server error occurs</response>
+        [HttpGet("courses/statistics")]
+        [ProducesResponseType(typeof(ApiResponse<CourseStatistics>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<CourseStatistics>), StatusCodes.Status500InternalServerError)]
+        public async Task<ActionResult<ApiResponse<CourseStatistics>>> GetCourseStatistics()
+        {
+            try
+            {
+                _logger.LogInformation("GET /api/skillgap/courses/statistics - Request received");
+
+                // Get basic statistics
+                var searchRequest = new CourseSearchRequest { PageSize = 1 };
+                var coursesResult = await _skillGapService.GetCoursesAsync(searchRequest);
+
+                var departmentsResult = await _skillGapService.GetDepartmentsAsync();
+                var areasResult = await _skillGapService.GetAreasAsync();
+                var skillsResult = await _skillGapService.GetSkillsAsync();
+                var levelsResult = await _skillGapService.GetLevelsAsync();
+
+                var statistics = new CourseStatistics
+                {
+                    TotalCourses = coursesResult.Data?.TotalCount ?? 0,
+                    TotalDepartments = departmentsResult.Data?.Count ?? 0,
+                    TotalAreas = areasResult.Data?.Count ?? 0,
+                    TotalSkills = skillsResult.Data?.Count ?? 0,
+                    TotalLevels = levelsResult.Data?.Count ?? 0,
+                    Departments = departmentsResult.Data ?? new List<string>(),
+                    Areas = areasResult.Data ?? new List<string>(),
+                    Skills = skillsResult.Data ?? new List<string>(),
+                    Levels = levelsResult.Data ?? new List<string>()
+                };
+
+                _logger.LogInformation("GetCourseStatistics completed");
+
+                return Ok(new ApiResponse<CourseStatistics>
+                {
+                    Success = true,
+                    Message = "Course statistics retrieved successfully",
+                    Data = statistics
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error in GetCourseStatistics");
+                return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<CourseStatistics>
+                {
+                    Success = false,
+                    Message = "An unexpected error occurred",
+                    Data = new CourseStatistics()
+                });
+            }
+        }
+
+        /// <summary>
+        /// Bulk import courses from CSV or Excel file
+        /// </summary>
+        /// <param name="file">CSV or Excel file containing course data</param>
+        /// <returns>Import result with success/failure counts</returns>
+        /// <response code="200">Returns the import result</response>
+        /// <response code="400">If the file is invalid or missing</response>
+        /// <response code="500">If an internal server error occurs</response>
+        //[HttpPost("courses/bulk-import")]
+        //[Consumes("multipart/form-data")]
+
+        //[ProducesResponseType(typeof(ApiResponse<BulkImportResult>), StatusCodes.Status200OK)]
+        //[ProducesResponseType(typeof(ApiResponse<BulkImportResult>), StatusCodes.Status400BadRequest)]
+        //[ProducesResponseType(typeof(ApiResponse<BulkImportResult>), StatusCodes.Status500InternalServerError)]
+        //public async Task<ActionResult<ApiResponse<BulkImportResult>>> BulkImportCourses(
+        //    [FromForm][Required] IFormFile file)
+        //{
+        //    try
+        //    {
+        //        _logger.LogInformation("POST /api/skillgap/courses/bulk-import - File: {FileName}", file?.FileName);
+
+        //        if (file == null || file.Length == 0)
+        //        {
+        //            return BadRequest(new ApiResponse<BulkImportResult>
+        //            {
+        //                Success = false,
+        //                Message = "File is required",
+        //                Data = new BulkImportResult()
+        //            });
+        //        }
+
+        //        // Validate file type
+        //        var allowedExtensions = new[] { ".csv", ".xlsx", ".xls" };
+        //        var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+        //        if (!allowedExtensions.Contains(fileExtension))
+        //        {
+        //            return BadRequest(new ApiResponse<BulkImportResult>
+        //            {
+        //                Success = false,
+        //                Message = "Only CSV and Excel files are supported",
+        //                Data = new BulkImportResult()
+        //            });
+        //        }
+
+        //        // TODO: Implement bulk import logic
+        //        // This would involve:
+        //        // 1. Reading the file content
+        //        // 2. Parsing CSV/Excel data
+        //        // 3. Validating each row
+        //        // 4. Creating courses in batch
+        //        // 5. Returning import results
+
+        //        _logger.LogInformation("BulkImportCourses - Feature not yet implemented");
+
+        //        return Ok(new ApiResponse<BulkImportResult>
+        //        {
+        //            Success = false,
+        //            Message = "Bulk import feature is not yet implemented",
+        //            Data = new BulkImportResult
+        //            {
+        //                TotalProcessed = 0,
+        //                SuccessCount = 0,
+        //                FailureCount = 0,
+        //                Errors = new List<string> { "Bulk import feature is not yet implemented" }
+        //            }
+        //        });
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Unexpected error in BulkImportCourses");
+        //        return StatusCode(StatusCodes.Status500InternalServerError, new ApiResponse<BulkImportResult>
+        //        {
+        //            Success = false,
+        //            Message = "An unexpected error occurred",
+        //            Data = new BulkImportResult()
+        //        });
+        //    }
+        //}
+
     }
 
     // Additional DTOs for controller requests
@@ -727,4 +1371,5 @@ namespace ZainEMPProtal.Controllers
         [Range(1, int.MaxValue, ErrorMessage = "Profile ID must be greater than 0")]
         public int Id { get; set; }
     }
+
 }
